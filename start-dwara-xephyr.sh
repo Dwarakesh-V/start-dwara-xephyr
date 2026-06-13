@@ -10,11 +10,13 @@ if [ "$EUID" -ne 0 ]; then
 fi
 exec >/dev/null 2>&1
 pkill Xephyr
-nohup Xephyr -br -ac -noreset -screen 1920x1080 :1 &
+nohup Xephyr -br -ac -noreset -screen 2208x1242 :1 &
 sleep 2
 nohup su - dwara-xephyr -c '
 export PULSE_SERVER=127.0.0.1
 export DISPLAY=:1
 exec xfce4-session
 ' &
+sleep 5 # Wait for xfce session to boot up fully
+sync-clipboard &
 exit 0

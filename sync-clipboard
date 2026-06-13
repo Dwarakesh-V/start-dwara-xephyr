@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+import gi
+import sys
+
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib
+
+def main():
+    display_host_name = ":0"
+    display_xephyr_name = ":1"
+
+    # Open connections to both X11 displays
+    display_host = Gdk.Display.open(display_host_name)
+    display_xephyr = Gdk.Display.open(display_xephyr_name)
+
+    # This is dumped into /dev/null when running with &, but keeping here for code and debug purposes
+    if not display_host or not display_xephyr:
+        print("Error: Could not connect to both displays. Ensure Xephyr is active.")
+        sys.exit(1)
+
+    # Get clipboards
+    clip_host = Gtk.Clipboard.get_for_display(display_host, Gdk.SELECTION_CLIPBOARD)
+    clip_xephyr = Gtk.Clipboard.get_for_display(display_xephyr, Gdk.SELECTION_CLIPBOARD)
+
+    # Guard flags to prevent infinite ping-pong feedback loops
+    is_syncing = False
+
+    def sync_clipboards(source_clip, target_clip):
+        nonlocal is_syncing
+        if is_syncing:
+            return
+        
+        is_syncing = True
+        try:
+            # Check for Image data
+            if source_clip.wait_is_image_available():
+                pixbuf = source_clip.wait_for_image()
+                if pixbuf:
+                    target_clip.set_image(pixbuf)
+                    target_clip.store()  # Keeps data in X server even if source app closes
+            
+            # Fallback to Text data
+            elif source_clip.wait_is_text_available():
+                text = source_clip.wait_for_text()
+                if text:
+                    target_clip.set_text(text, -1)
+                    target_clip.store()
+        finally:
+            is_syncing = False
+
+    # Event triggers when clipboard ownership changes (i.e., someone copies something)
+    def on_host_changed(clipboard, event):
+        sync_clipboards(clip_host, clip_xephyr)
+
+    def on_xephyr_changed(clipboard, event):
+        sync_clipboards(clip_xephyr, clip_host)
+
+    # Connect signals
+    clip_host.connect('owner-change', on_host_changed)
+    clip_xephyr.connect('owner-change', on_xephyr_changed)
+
+    print(f"Event-driven Text & Image sync active between {display_host_name} and {display_xephyr_name}...")
+    
+    loop = GLib.MainLoop()
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        print("\nSync terminated.")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
